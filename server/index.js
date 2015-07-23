@@ -155,7 +155,7 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 			self.addLayer(routes[routeId]);
 		});
 		if (!self.allow) {
-			errorHandler(403, "No accessible route for uri '" + uri + "'!");
+			errorHandler(403, "[FireNode] No accessible route for uri '" + uri + "'!");
 			return false;
 		}
 		return true;
@@ -175,7 +175,9 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 
 		var serviceContext = req._FireNodeContext.hosts[req._FireNodeContext.request.hostname];
 		if (!serviceContext) {
-			return res.status(404).send("Hostname '" + req._FireNodeContext.request.hostname + '" not configured!');
+			res.writeHead(404);
+			res.end("[FireNode] Hostname '" + req._FireNodeContext.request.hostname + '" not configured!');
+			return false;
 		}
 
 		req._FireNodeContext.addLayer(serviceContext);
@@ -185,8 +187,9 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 				code: code,
 				message: message
 			};
-			console.error("Error for path '" + req._FireNodeContext.request.path + "':", err);
-			return res.status(code).send(message);
+			console.error("[FireNode] Error for path '" + req._FireNodeContext.request.path + "':", err);
+			res.writeHead(404);
+			res.end(message);
 		});
 	}
 
@@ -211,7 +214,13 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 
 		var serviceContext = socket._FireNodeContext.hosts[socket._FireNodeContext.request.hostname];
 		if (!serviceContext) {
-			return res.status(404).send("Hostname '" + socket._FireNodeContext.request.hostname + '" not configured!');
+			var err = {
+				code: 404,
+				message: "[FireNode] Hostname '" + socket._FireNodeContext.request.hostname + '" not configured!'
+			};
+			socket.emit("error", err);
+			console.error("[FireNode] Error for path '" + socket._FireNodeContext.request.path + "':", err);
+			return socket.end();
 		}
 
 		socket._FireNodeContext.addLayer(serviceContext);
@@ -222,7 +231,7 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 				message: message
 			};
 			socket.emit("error", err);
-			console.error("Error for path '" + socket._FireNodeContext.request.path + "':", err);
+			console.error("[FireNode] Error for path '" + socket._FireNodeContext.request.path + "':", err);
 			return socket.end();
 		});
 	}
