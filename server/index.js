@@ -218,9 +218,14 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 				code: 404,
 				message: "[FireNode] Hostname '" + socket._FireNodeContext.request.hostname + '" not configured!'
 			};
-			socket.emit("error", err);
 			console.error("[FireNode] Error for path '" + socket._FireNodeContext.request.path + "':", err);
-			return socket.end();
+			try {
+				socket.emit("response:error", err);
+				socket.close();
+			} catch (err) {
+				console.error("Error sending error over socket:", err.stack);
+			}
+			return false;
 		}
 
 		socket._FireNodeContext.addLayer(serviceContext);
@@ -230,9 +235,14 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 				code: code,
 				message: message
 			};
-			socket.emit("error", err);
 			console.error("[FireNode] Error for path '" + socket._FireNodeContext.request.path + "':", err);
-			return socket.end();
+			try {
+				socket.emit("response:error", err);
+				socket.close();
+			} catch (err) {
+				console.error("Error sending error over socket:", err.stack);
+			}
+			return false;
 		});
 	}
 
