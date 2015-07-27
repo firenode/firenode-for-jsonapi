@@ -141,7 +141,11 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 		if (routeExpressions[routeId]) {
 			return routeExpressions[routeId];
 		}
-		routeExpressions[routeId] = new RegExp("^" + API.REGEXP_ESCAPE(routeId));
+		if (/\$$/.test(routeId)) {
+			routeExpressions[routeId] = new RegExp("^" + API.REGEXP_ESCAPE(routeId.replace(/\$$/, "")) + "$");
+		} else {
+			routeExpressions[routeId] = new RegExp("^" + API.REGEXP_ESCAPE(routeId));
+		}
 		return routeExpressions[routeId];
 	}
 
@@ -182,7 +186,7 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 
 		req._FireNodeContext.addLayer(serviceContext);
 
-		return req._FireNodeContext.attachToUri(req._FireNodeContext.request.path, function (code, message) {
+		var attached = req._FireNodeContext.attachToUri(req._FireNodeContext.request.path, function (code, message) {
 			var err = {
 				code: code,
 				message: message
@@ -191,6 +195,21 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 			res.writeHead(404);
 			res.end(message);
 		});
+		if (!attached) return attached;
+
+		// Now modify request based on config.
+
+		if (
+			req._FireNodeContext.config &&
+			req._FireNodeContext.config.internalUri
+		) {
+			req.url = req._FireNodeContext.config.internalUri;
+			if (API.DEBUG) {
+				console.log("Set url to '" + req.url + "' based on 'internalUri' route config.");
+			}
+		}
+
+		return attached;
 	}
 
 	Server.prototype.attachToMessage = function (message) {
