@@ -195,21 +195,27 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 			res.writeHead(404);
 			res.end(message);
 		});
-		if (!attached) return attached;
+		if (!attached) return false;
 
 		// Now modify request based on config.
 
-		if (
-			req._FireNodeContext.config &&
-			req._FireNodeContext.config.internalUri
-		) {
-			req.url = req._FireNodeContext.config.internalUri;
-			if (API.DEBUG) {
-				console.log("Set url to '" + req.url + "' based on 'internalUri' route config.");
+		if (req._FireNodeContext.config) {
+			if (req._FireNodeContext.config.externalRedirect) {
+				res.writeHead(302, {
+					"Location": req._FireNodeContext.config.externalRedirect
+				});
+				res.end();
+				return false
+			} else
+			if (req._FireNodeContext.config.internalUri) {
+				req.url = req._FireNodeContext.config.internalUri;
+				if (API.DEBUG) {
+					console.log("Set url to '" + req.url + "' based on 'internalUri' route config.");
+				}
 			}
 		}
 
-		return attached;
+		return true;
 	}
 
 	Server.prototype.attachToMessage = function (message) {
