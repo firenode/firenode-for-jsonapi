@@ -1,6 +1,24 @@
 
 require('org.pinf.genesis.lib').forModule(require, module, function (API, exports) {
 
+
+	// TODO: Hookup to memcached.
+	var SessionStore = function () {
+		this.sessions = {};
+	}
+	SessionStore.prototype.set = function (sessionToken, value) {
+		this.sessions[sessionToken] = value;
+		// TODO: Remove session when expired (x time after last modification).
+//console.log("Set session in store", sessionToken, value);
+	}
+	SessionStore.prototype.get = function (sessionToken) {
+//console.log("Get session from store", sessionToken);
+		return this.sessions[sessionToken] || null;
+	}
+
+	var sessionStore = new SessionStore();
+
+
 	var Context = function () {
 
 		var self = this;
@@ -112,6 +130,47 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 				return mergeAcrossLayers("allow");
 			}
 		});
+		Object.defineProperty(self, "session", {
+			get: function () {
+				return mergeAcrossLayers("session");
+			}
+		});
+
+		Object.defineProperty(self, "sessionToken", {
+			get: function () {
+				function getValue (verify) {
+					var config = self.config;
+
+					if (
+						config.sessionToken &&
+						config.sessionToken !== "<REPLACED-BY-ROUTER>"
+					) {
+						if (verify) {
+							sessionStore.set(config.sessionToken, self.session);
+						}
+						return config.sessionToken;
+					}
+
+					if (verify) {
+						throw new Error("Variable 'config.clientContext.sessionToken' not found after trying to add it!");
+					}
+
+					var sessionToken = API.UUID.v4();
+					console.log("init new session token:", sessionToken);
+					self.addLayer({
+						config: {
+							sessionToken: sessionToken
+						},
+						session: {
+							createdTime: Date.now()
+						}
+					});
+
+					return getValue(true);
+				}
+				return getValue();
+			}
+		});
 	}
 
 
@@ -160,11 +219,16 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 		var routeIds = Object.keys(routes);
 		routeIds.sort();
 		var lastRouteArg = null;
+		var lastMatchingRoute = false;
 		routeIds.forEach(function (routeId) {
+			if (lastMatchingRoute) return;
 			var m = routeExpressionForRouteId(routeId).exec(uri);
 			if (!m) return;
 			self.addLayer(routes[routeId]);
 			lastRouteArg = m[1];
+			if (routes[routeId].lastMatchingRoute) {
+				lastMatchingRoute = true;
+			}
 		});
 		if (!self.allow) {
 			errorHandler(403, "[FireNode] No accessible route for uri '" + uri + "'!");
@@ -176,46 +240,65 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 	Server.prototype.attachToRequest = function (req, res) {
 		var self = this;
 
-		return API.Q.fcall(function () {
+		var hostParts = req.headers.host.split(":");
 
-			var hostParts = req.headers.host.split(":");
+		req._FireNodeContext = self._makeContext({
+			request: {
+				hostname: hostParts[0],
+				port: hostParts[1] || "",
+				path: req.url
+			}
+		});
 
-			req._FireNodeContext = self._makeContext({
-				request: {
-					hostname: hostParts[0],
-					port: hostParts[1] || "",
-					path: req.url
+		var serviceContext = req._FireNodeContext.hosts[req._FireNodeContext.request.hostname];
+		if (!serviceContext) {
+			res.writeHead(404);
+			res.end("[FireNode] Hostname '" + req._FireNodeContext.request.hostname + '" not configured!');
+			console.log("[FireNode] Hostname '" + req._FireNodeContext.request.hostname + '" not configured!');
+			return false;
+		}
+
+		req._FireNodeContext.addLayer(serviceContext);
+
+		var attached = req._FireNodeContext.attachToUri(req._FireNodeContext.request.path, function (code, message) {
+			var err = {
+				code: code,
+				message: message
+			};
+			console.error("[FireNode] Error for path '" + req._FireNodeContext.request.path + "':", err);
+			res.writeHead(404);
+			res.end(message);
+		});
+		if (attached === false) return false;
+
+		// Route request if declared
+
+		var config = req._FireNodeContext.config;
+
+		if (config) {
+
+			if (
+				config.clientContext &&
+				config.clientContext.sessionCookieName
+			) {
+				if (
+					req.cookies &&
+					req.cookies.gblsid
+				) {
+					var session = sessionStore.get(req.cookies.gblsid);
+					if (session) {
+						req._FireNodeContext.addLayer({
+							config: {
+								sessionToken: req.cookies.gblsid
+							},
+							session: session
+						});
+						config = req._FireNodeContext.config;
+					}
 				}
-			});
-
-			var serviceContext = req._FireNodeContext.hosts[req._FireNodeContext.request.hostname];
-			if (!serviceContext) {
-				res.writeHead(404);
-				res.end("[FireNode] Hostname '" + req._FireNodeContext.request.hostname + '" not configured!');
-				console.log("[FireNode] Hostname '" + req._FireNodeContext.request.hostname + '" not configured!');
-				return false;
 			}
 
-			req._FireNodeContext.addLayer(serviceContext);
-
-			var attached = req._FireNodeContext.attachToUri(req._FireNodeContext.request.path, function (code, message) {
-				var err = {
-					code: code,
-					message: message
-				};
-				console.error("[FireNode] Error for path '" + req._FireNodeContext.request.path + "':", err);
-				res.writeHead(404);
-				res.end(message);
-			});
-			if (attached === false) return false;
-
-			// Route request if declared
-
-			var config = req._FireNodeContext.config;
-
-			if (config) {
-
-				// Handle router.
+			return API.Q.fcall(function () {
 
 				function finalizeRoute () {
 
@@ -231,10 +314,18 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 						return false
 					} else
 					if (config.internalUri) {
+						var originalUrl = req.url;
 						req.url = config.internalUri;
 						if (API.DEBUG) {
-							console.log("Set url to '" + req.url + "' based on 'internalUri' route config.");
+							console.log("Set url from '" + originalUrl + "' to '" + req.url + "' based on 'internalUri' route config.");
 						}
+					}
+
+					if (
+						config.sessionToken &&
+						config.sessionToken !== "<REPLACED-BY-ROUTER>"
+					) {
+						sessionStore.set(config.sessionToken, req._FireNodeContext.session);
 					}
 
 					return true;
@@ -268,10 +359,9 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 				}
 
 				return finalizeRoute();
-			}
-
-			return true;
-		});
+			});
+		}
+		return true;
 	}
 
 	Server.prototype.attachToMessage = function (message) {
