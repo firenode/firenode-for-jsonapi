@@ -115,9 +115,11 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 	}
 
 
-	var Server = exports.Server = function (contextProperties) {
+	var Server = exports.Server = function (contextProperties, initOptions) {
 
 		var self = this;
+
+		self.initOptions = initOptions || {};
 
 		var context = new Context();
 
@@ -141,6 +143,9 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 		if (routeExpressions[routeId]) {
 			return routeExpressions[routeId];
 		}
+		if (/^\^/.test(routeId)) {
+			routeExpressions[routeId] = new RegExp(routeId.replace(/\//g, "\\/"));
+		} else
 		if (/\$$/.test(routeId)) {
 			routeExpressions[routeId] = new RegExp("^" + API.REGEXP_ESCAPE(routeId.replace(/\$$/, "")) + "$");
 		} else {
@@ -154,68 +159,119 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 		var routes = self.routes;
 		var routeIds = Object.keys(routes);
 		routeIds.sort();
+		var lastRouteArg = null;
 		routeIds.forEach(function (routeId) {
-			if (!routeExpressionForRouteId(routeId).test(uri)) return
+			var m = routeExpressionForRouteId(routeId).exec(uri);
+			if (!m) return;
 			self.addLayer(routes[routeId]);
+			lastRouteArg = m[1];
 		});
 		if (!self.allow) {
 			errorHandler(403, "[FireNode] No accessible route for uri '" + uri + "'!");
 			return false;
 		}
-		return true;
+		return lastRouteArg;
 	}
 
 	Server.prototype.attachToRequest = function (req, res) {
+		var self = this;
 
-		var hostParts = req.headers.host.split(":");
+		return API.Q.fcall(function () {
 
-		req._FireNodeContext = this._makeContext({
-			request: {
-				hostname: hostParts[0],
-				port: hostParts[1] || "",
-				path: req.url
-			}
-		});
+			var hostParts = req.headers.host.split(":");
 
-		var serviceContext = req._FireNodeContext.hosts[req._FireNodeContext.request.hostname];
-		if (!serviceContext) {
-			res.writeHead(404);
-			res.end("[FireNode] Hostname '" + req._FireNodeContext.request.hostname + '" not configured!');
-			return false;
-		}
-
-		req._FireNodeContext.addLayer(serviceContext);
-
-		var attached = req._FireNodeContext.attachToUri(req._FireNodeContext.request.path, function (code, message) {
-			var err = {
-				code: code,
-				message: message
-			};
-			console.error("[FireNode] Error for path '" + req._FireNodeContext.request.path + "':", err);
-			res.writeHead(404);
-			res.end(message);
-		});
-		if (!attached) return false;
-
-		// Now modify request based on config.
-
-		if (req._FireNodeContext.config) {
-			if (req._FireNodeContext.config.externalRedirect) {
-				res.writeHead(302, {
-					"Location": req._FireNodeContext.config.externalRedirect
-				});
-				res.end();
-				return false
-			} else
-			if (req._FireNodeContext.config.internalUri) {
-				req.url = req._FireNodeContext.config.internalUri;
-				if (API.DEBUG) {
-					console.log("Set url to '" + req.url + "' based on 'internalUri' route config.");
+			req._FireNodeContext = self._makeContext({
+				request: {
+					hostname: hostParts[0],
+					port: hostParts[1] || "",
+					path: req.url
 				}
-			}
-		}
+			});
 
-		return true;
+			var serviceContext = req._FireNodeContext.hosts[req._FireNodeContext.request.hostname];
+			if (!serviceContext) {
+				res.writeHead(404);
+				res.end("[FireNode] Hostname '" + req._FireNodeContext.request.hostname + '" not configured!');
+				console.log("[FireNode] Hostname '" + req._FireNodeContext.request.hostname + '" not configured!');
+				return false;
+			}
+
+			req._FireNodeContext.addLayer(serviceContext);
+
+			var attached = req._FireNodeContext.attachToUri(req._FireNodeContext.request.path, function (code, message) {
+				var err = {
+					code: code,
+					message: message
+				};
+				console.error("[FireNode] Error for path '" + req._FireNodeContext.request.path + "':", err);
+				res.writeHead(404);
+				res.end(message);
+			});
+			if (attached === false) return false;
+
+			// Route request if declared
+
+			var config = req._FireNodeContext.config;
+
+			if (config) {
+
+				// Handle router.
+
+				function finalizeRoute () {
+
+					config = req._FireNodeContext.config;
+
+					// Now modify request based on config.
+
+					if (config.externalRedirect) {
+						res.writeHead(302, {
+							"Location": config.externalRedirect
+						});
+						res.end();
+						return false
+					} else
+					if (config.internalUri) {
+						req.url = config.internalUri;
+						if (API.DEBUG) {
+							console.log("Set url to '" + req.url + "' based on 'internalUri' route config.");
+						}
+					}
+
+					return true;
+				}
+
+				if (
+					config.router &&
+					self.initOptions.instances
+				) {
+					var router = null;
+
+					try {
+						router = self.initOptions.instances[config.router.impl].for(API);
+						if (!router) throw new Error("No router instance mapped");
+					} catch (err) {
+						console.error("config.router", config.router);
+						console.error("self.initOptions", self.initOptions);
+						console.error(err.stack);
+						throw new Error("Error loading impl '" + config.router.impl + "' from initOptions");
+					}
+
+					if (router) {
+						return API.Q.when(router.processRequest(req, attached), function (responded) {
+							if (responded) {
+								return true;
+							}
+
+							return finalizeRoute();
+						});
+					}
+				}
+
+				return finalizeRoute();
+			}
+
+			return true;
+		});
 	}
 
 	Server.prototype.attachToMessage = function (message) {
