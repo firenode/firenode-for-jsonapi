@@ -12,7 +12,7 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 //console.log("Set session in store", sessionToken, value);
 	}
 	SessionStore.prototype.get = function (sessionToken) {
-//console.log("Get session from store", sessionToken);
+//console.log("Get session from store", sessionToken, this.sessions[sessionToken] || null);
 		return this.sessions[sessionToken] || null;
 	}
 
@@ -24,6 +24,7 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 		var self = this;
 
 		var layers = [];
+		const RESET_OBJECT = "RESET-OBJECT-CONSTANT";
 
 		function mergeAcrossLayers (propertySelector, overridesForSubLayers) {
 			var value = null;
@@ -81,7 +82,12 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 				}
 				var match = getMatchForLayer(layer);
 				if (!match) return;
-				value = mergeValues(value, match.value);
+
+				if (match.value === RESET_OBJECT) {
+					value = {};
+				} else {
+					value = mergeValues(value, match.value);
+				}
 			});
 
 			return value;
@@ -90,6 +96,9 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 		self.addLayer = function (context) {
 			if (!context) return;
 			layers.push(context);
+			if (context.session) {
+				self.emit("session-changed");
+			}
 		}
 
 		self.clone = function () {
@@ -135,6 +144,18 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 				return mergeAcrossLayers("session");
 			}
 		});
+		self.resetSession = function () {
+			console.log("reset session");
+			var sessionToken = API.UUID.v4();
+			console.log("init new session token:", sessionToken);
+			self.addLayer({
+				config: {
+					sessionToken: sessionToken
+				},
+				session: RESET_OBJECT
+			});
+			self.emit("new-session");
+		}
 
 		Object.defineProperty(self, "sessionToken", {
 			get: function () {
@@ -165,6 +186,7 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 							createdTime: Date.now()
 						}
 					});
+					self.emit("new-session");
 
 					return getValue(true);
 				}
@@ -172,6 +194,7 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 			}
 		});
 	}
+	Context.prototype = Object.create(API.EVENTS.EventEmitter.prototype);
 
 
 	var Server = exports.Server = function (contextProperties, initOptions) {
@@ -269,7 +292,31 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 			res.writeHead(404);
 			res.end(message);
 		});
+		// If we did not attach we signal that we should not proceed.
 		if (attached === false) return false;
+
+		req._FireNodeContext.on("new-session", function () {
+			var config = req._FireNodeContext.config;
+			if (
+				config.clientContext &&
+				config.clientContext.sessionCookieName
+			) {
+				var cookies = API.COOKIES(req, res);
+				cookies.set(config.clientContext.sessionCookieName, config.sessionToken);
+			}
+		});
+
+		req._FireNodeContext.on("session-changed", function () {
+			var config = req._FireNodeContext.config;
+			if (
+				config.sessionToken &&
+				config.sessionToken !== "<REPLACED-BY-ROUTER>"
+			) {
+				// TODO: Debounce and buffer these calls for 1 sec.
+				// TODO: Diff data with existing to see if changed.
+				sessionStore.set(config.sessionToken, req._FireNodeContext.session);
+			}
+		});
 
 		// Route request if declared
 
@@ -277,19 +324,19 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 
 		if (config) {
 
+//console.log("Found config", config);
+
 			if (
 				config.clientContext &&
 				config.clientContext.sessionCookieName
 			) {
-				if (
-					req.cookies &&
-					req.cookies.gblsid
-				) {
-					var session = sessionStore.get(req.cookies.gblsid);
+				var cookies = API.COOKIES(req, res);
+				if (cookies.get("gblsid")) {
+					var session = sessionStore.get(cookies.get("gblsid"));
 					if (session) {
 						req._FireNodeContext.addLayer({
 							config: {
-								sessionToken: req.cookies.gblsid
+								sessionToken: cookies.get("gblsid")
 							},
 							session: session
 						});
@@ -302,15 +349,24 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 
 				function finalizeRoute () {
 
-					config = req._FireNodeContext.config;
+					var config = req._FireNodeContext.config;
 
 					// Now modify request based on config.
 
 					if (config.externalRedirect) {
+
+						if (req.url === config.externalRedirect) {
+							res.writeHead(500);
+							res.end("Infinite redirect!");
+							// Do not proceed.
+							return false
+						}
+
 						res.writeHead(302, {
 							"Location": config.externalRedirect
 						});
 						res.end();
+						// Do not proceed.
 						return false
 					} else
 					if (config.internalUri) {
@@ -319,13 +375,6 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 						if (API.DEBUG) {
 							console.log("Set url from '" + originalUrl + "' to '" + req.url + "' based on 'internalUri' route config.");
 						}
-					}
-
-					if (
-						config.sessionToken &&
-						config.sessionToken !== "<REPLACED-BY-ROUTER>"
-					) {
-						sessionStore.set(config.sessionToken, req._FireNodeContext.session);
 					}
 
 					return true;
@@ -338,7 +387,13 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 					var router = null;
 
 					try {
-						router = self.initOptions.instances[config.router.impl].for(API);
+						var inst = self.initOptions.instances[config.router.impl];
+						console.log("self.initOptions.instances", self.initOptions.instances);
+						if (!inst || typeof inst.for !== "function") {
+							console.error("inst", inst);
+							throw new Error("Module implementation for '" + config.router.impl + "' does not export 'for' method!");
+						}
+						router = inst.for(API);
 						if (!router) throw new Error("No router instance mapped");
 					} catch (err) {
 						console.error("config.router", config.router);
@@ -348,13 +403,27 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 					}
 
 					if (router) {
-						return API.Q.when(router.processRequest(req, attached), function (responded) {
-							if (responded) {
-								return true;
-							}
+						try {
+							
+							console.log("Pass request to router:", config.router.impl);
 
-							return finalizeRoute();
-						});
+							return API.Q.when(router.processRequest(req, res, {
+								arg: attached
+							}), function (responded) {
+								if (responded) {
+									// Do not proceed.
+									return false;
+								}
+
+								return finalizeRoute();
+							});
+						} catch (err) {
+							console.error("Error processing request using router '" + config.router.impl + "':", err.stack);
+							res.writeHead(500);
+							res.end("Internal Server Error");
+							// Do not proceed.
+							return false;
+						}
 					}
 				}
 

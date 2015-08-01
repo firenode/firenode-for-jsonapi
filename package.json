@@ -1,6 +1,7 @@
 {
   "name": "firenode-for-jsonapi",
   "dependencies": {
+    "cookies": "^0.5.0",
     "deepmerge": "^0.2.10",
     "escape-regexp-component": "^1.0.2",
     "extend": "^3.0.0",
@@ -15,7 +16,9 @@
           "EXTEND": "extend",
           "DEEPMERGE": "deepmerge",
           "REGEXP_ESCAPE": "escape-regexp-component",
-          "UUID": "uuid"
+          "UUID": "uuid",
+          "COOKIES": "cookies",
+          "EVENTS": "events"
         }
       }
     }
