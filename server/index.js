@@ -293,7 +293,10 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 			res.end(message);
 		});
 		// If we did not attach we signal that we should not proceed.
-		if (attached === false) return false;
+		if (attached === false) {
+//console.log("did not attch", req.url);
+			return false;
+		}
 
 		req._FireNodeContext.on("new-session", function () {
 			var config = req._FireNodeContext.config;
@@ -324,13 +327,14 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 
 		if (config) {
 
-//console.log("Found config", config);
+//console.log("Found config", req.url, config);
 
 			if (
 				config.clientContext &&
 				config.clientContext.sessionCookieName
 			) {
 				var cookies = API.COOKIES(req, res);
+//console.log("cookie value for", cookies.get("gblsid"));
 				if (cookies.get("gblsid")) {
 					var session = sessionStore.get(cookies.get("gblsid"));
 					if (session) {
@@ -429,6 +433,10 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 
 				return finalizeRoute();
 			});
+		} else {
+
+//console.log("No config found", config);
+
 		}
 		return true;
 	}
