@@ -26,7 +26,7 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 		var layers = [];
 		const RESET_OBJECT = "RESET-OBJECT-CONSTANT";
 
-		function mergeAcrossLayers (propertySelector, overridesForSubLayers) {
+		function mergeAcrossLayers (propertySelector) {
 			var value = null;
 
 			function mergeValues (baseValue, overlayValue) {
@@ -61,25 +61,6 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 
 			var layersLength = layers.length;
 			layers.forEach(function (layer, i) {
-				if (
-					overridesForSubLayers &&
-					i === (layersLength - 1)
-				) {
-					overridesForSubLayers.forEach(function (overrideForSubLayers) {
-						if (typeof self[overrideForSubLayers] === "undefined") return;
-
-						var overrides = {};
-						overrides[propertySelector] = {};
-						Object.keys(value || {}).forEach(function (id) {
-
-							if (!value[id][overrideForSubLayers]) {
-								value[id][overrideForSubLayers] = {};
-							}
-							value[id][overrideForSubLayers] = mergeValues(value[id][overrideForSubLayers], self[overrideForSubLayers]);
-						});
-					});
-
-				}
 				var match = getMatchForLayer(layer);
 				if (!match) return;
 
@@ -119,9 +100,12 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 		});
 		Object.defineProperty(self, "routes", {
 			get: function () {
-				return mergeAcrossLayers("routes", [
-					"config"
-				]);
+				var routes = mergeAcrossLayers("routes");
+				var config = self.config;
+				for (var routeId in routes) {
+					routes[routeId].config = API.DEEPMERGE(config, routes[routeId].config || {});
+				}
+				return routes;
 			}
 		});
 		Object.defineProperty(self, "hosts", {
