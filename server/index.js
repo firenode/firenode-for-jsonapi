@@ -70,7 +70,7 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 
 						var overrides = {};
 						overrides[propertySelector] = {};
-						Object.keys(value).forEach(function (id) {
+						Object.keys(value || {}).forEach(function (id) {
 
 							if (!value[id][overrideForSubLayers]) {
 								value[id][overrideForSubLayers] = {};
