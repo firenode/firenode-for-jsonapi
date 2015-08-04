@@ -36,6 +36,17 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 				if (baseValue === overlayValue) {
 					// same value
 				} else {
+					// Ensure variables stay in order of top config object.
+					// TODO: Use arrays and do not rely on property order in object.
+/*
+					if (typeof overlayValue === "object") {
+						for (var name in overlayValue) {
+							if (typeof baseValue[name] === "undefined") {
+								baseValue[name] = null;
+							}
+						}
+					}
+*/
 					baseValue = API.DEEPMERGE(baseValue, overlayValue);
 				}
 				return JSON.parse(JSON.stringify(baseValue));
@@ -128,6 +139,10 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 				return mergeAcrossLayers("session");
 			}
 		});
+		self.initSession = function () {
+			// We initialize the session by accessing the 'sessionToken' property.
+			this.sessionToken;
+		}
 		self.resetSession = function () {
 			console.log("reset session");
 			var sessionToken = API.UUID.v4();
@@ -304,6 +319,8 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 				sessionStore.set(config.sessionToken, req._FireNodeContext.session);
 			}
 		});
+
+		req._FireNodeContext.initSession();
 
 		// Route request if declared
 
