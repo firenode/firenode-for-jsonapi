@@ -9,10 +9,10 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 	SessionStore.prototype.set = function (sessionToken, value) {
 		this.sessions[sessionToken] = value;
 		// TODO: Remove session when expired (x time after last modification).
-//console.log("Set session in store", sessionToken, value);
+console.log("Set session in store", sessionToken, value);
 	}
 	SessionStore.prototype.get = function (sessionToken) {
-//console.log("Get session from store", sessionToken, this.sessions[sessionToken] || null);
+console.log("Get session from store", sessionToken, this.sessions[sessionToken] || null);
 		return this.sessions[sessionToken] || null;
 	}
 
@@ -304,7 +304,9 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 				config.clientContext.sessionCookieName
 			) {
 				var cookies = API.COOKIES(req, res);
-				cookies.set(config.clientContext.sessionCookieName, config.sessionToken);
+				cookies.set(config.clientContext.sessionCookieName, config.sessionToken, {
+					overwrite: true
+				});
 			}
 		});
 
@@ -319,8 +321,6 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 				sessionStore.set(config.sessionToken, req._FireNodeContext.session);
 			}
 		});
-
-		req._FireNodeContext.initSession();
 
 		// Route request if declared
 
@@ -349,6 +349,8 @@ require('org.pinf.genesis.lib').forModule(require, module, function (API, export
 					}
 				}
 			}
+
+			req._FireNodeContext.initSession();
 
 			return API.Q.fcall(function () {
 
