@@ -335,13 +335,13 @@ console.log("Get session from store", sessionToken, this.sessions[sessionToken] 
 				config.clientContext.sessionCookieName
 			) {
 				var cookies = API.COOKIES(req, res);
-//console.log("cookie value for", cookies.get("gblsid"));
-				if (cookies.get("gblsid")) {
-					var session = sessionStore.get(cookies.get("gblsid"));
+//console.log("cookie value for '" + config.clientContext.sessionCookieName + "':", cookies.get(config.clientContext.sessionCookieName));
+				if (cookies.get(config.clientContext.sessionCookieName)) {
+					var session = sessionStore.get(cookies.get(config.clientContext.sessionCookieName));
 					if (session) {
 						req._FireNodeContext.addLayer({
 							config: {
-								sessionToken: cookies.get("gblsid")
+								sessionToken: cookies.get(config.clientContext.sessionCookieName)
 							},
 							session: session
 						});
