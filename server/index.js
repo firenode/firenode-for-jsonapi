@@ -239,7 +239,8 @@ console.log("Get session from store", sessionToken, this.sessions[sessionToken] 
 		var self = this;
 		var routes = self.routes;
 		var routeIds = Object.keys(routes);
-		routeIds.sort();
+// TODO: Use an array of declared routes to have a deterministic order.
+//		routeIds.sort();
 		var lastRouteArg = null;
 		var lastMatchingRoute = false;
 		routeIds.forEach(function (routeId) {
@@ -249,6 +250,7 @@ console.log("Get session from store", sessionToken, this.sessions[sessionToken] 
 			self.addLayer(routes[routeId]);
 			lastRouteArg = m[1];
 			if (routes[routeId].lastMatchingRoute) {
+				console.log("Matched route ID", routeId);
 				lastMatchingRoute = true;
 			}
 		});
