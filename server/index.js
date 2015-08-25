@@ -129,6 +129,11 @@ console.log("Get session from store", sessionToken, this.sessions[sessionToken] 
 				return mergeAcrossLayers("config");
 			}
 		});
+		Object.defineProperty(self, "data", {
+			get: function () {
+				return mergeAcrossLayers("data");
+			}
+		});
 		Object.defineProperty(self, "allow", {
 			get: function () {
 				return mergeAcrossLayers("allow");
@@ -360,6 +365,8 @@ console.log("Get session from store", sessionToken, this.sessions[sessionToken] 
 
 					var config = req._FireNodeContext.config;
 
+					req._FireNodeContext.context = self.initOptions.contextFactory(config);
+
 					// Now modify request based on config.
 
 					if (config.externalRedirect) {
@@ -412,27 +419,30 @@ console.log("Get session from store", sessionToken, this.sessions[sessionToken] 
 					}
 
 					if (router) {
-						try {
-							
-							console.log("Pass request to router:", config.router.impl);
+						
+						console.log("Pass request to router:", config.router.impl);
 
-							return API.Q.when(router.processRequest(req, res, {
+						return API.Q.fcall(function () {
+
+							return router.processRequest(req, res, {
+								context: req._FireNodeContext.context,
 								arg: attached
-							}), function (responded) {
-								if (responded) {
-									// Do not proceed.
-									return false;
-								}
-
-								return finalizeRoute();
 							});
-						} catch (err) {
+
+						}).then(function (responded) {
+							if (responded) {
+								// Do not proceed.
+								return false;
+							}
+
+							return finalizeRoute();
+						}).fail(function (err) {
 							console.error("Error processing request using router '" + config.router.impl + "':", err.stack);
 							res.writeHead(500);
 							res.end("Internal Server Error");
 							// Do not proceed.
 							return false;
-						}
+						});
 					}
 				}
 
