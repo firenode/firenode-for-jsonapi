@@ -275,7 +275,8 @@ console.log("Get session from store", sessionToken, this.sessions[sessionToken] 
 			request: {
 				hostname: hostParts[0],
 				port: hostParts[1] || "",
-				path: req.url
+				path: req.url.replace(/\?.*$/, ""),
+				query: req.query
 			}
 		});
 
@@ -360,6 +361,8 @@ console.log("Get session from store", sessionToken, this.sessions[sessionToken] 
 			req._FireNodeContext.initSession();
 
 			return API.Q.fcall(function () {
+
+				req._FireNodeContext.context = self.initOptions.contextFactory(config);
 
 				function finalizeRoute () {
 
